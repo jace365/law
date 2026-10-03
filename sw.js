@@ -1,5 +1,5 @@
 /* 오프라인 캐시 — 데이터 파일을 추가하면 FILES에도 넣고 CACHE 버전을 올릴 것 */
-var CACHE = 'las-v1';
+var CACHE = 'las-v2';
 var FILES = ['./', './index.html', './manifest.webmanifest', './assets/style.css', './assets/app.js',
   './assets/icon-192.png', './assets/icon-512.png', './assets/apple-touch-icon.png',
   './data/00-core.js', './data/theory.js', './data/blanks.js',
@@ -13,7 +13,7 @@ self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
   e.respondWith(caches.match(e.request).then(function (r) {
     return r || fetch(e.request).then(function (res) {
-      if (res.ok && new URL(e.request.url).origin === location.origin) { var cp = res.clone(); caches.open(CACHE).then(function (c) { c.put(e.request, cp); }); }
+      var u = new URL(e.request.url); if ((res.ok && u.origin === location.origin) || u.hostname === 'cdn.jsdelivr.net') { var cp = res.clone(); caches.open(CACHE).then(function (c) { c.put(e.request, cp); }); }
       return res;
     }).catch(function () { return caches.match('./index.html'); });
   }));

@@ -4,7 +4,7 @@
   var KEY = 'las.v1';
   var store = load();
   function load() {
-    var d = { wrong: {}, wrongB: {}, solved: {}, mock: {}, last: '' };
+    var d = { wrong: {}, wrongB: {}, solved: {}, mock: {}, real: [], last: '' };
     try { var s = JSON.parse(localStorage.getItem(KEY) || '{}'); for (var k in s) d[k] = s[k]; } catch (e) {}
     return d;
   }
@@ -38,7 +38,7 @@
   /* 오답노트 담기/해제 */
   function isW(id) { return id.charAt(0) === 'b' ? !!store.wrongB[id] : !!store.wrong[id]; }
   function setW(id, on) { var o = id.charAt(0) === 'b' ? store.wrongB : store.wrong; if (on) o[id] = Date.now(); else delete o[id]; save(); nav(); }
-  function wrBtn(id) { var on = isW(id); return '<button class="wr' + (on ? ' on' : '') + '" data-wr="' + id + '">' + (on ? '✔ 오답노트' : '＋ 오답노트') + '</button>'; }
+  function wrBtn(id) { var on = isW(id); return '<button class="wr' + (on ? ' on' : '') + '" data-wr="' + id + '">' + (on ? '✔ 오답노트 해제' : '＋ 오답노트 담기') + '</button>'; }
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-wr]'); if (!b) return;
     var id = b.getAttribute('data-wr'), on = !isW(id); setW(id, on);
@@ -47,9 +47,9 @@
   });
 
   /* ── 내비게이션 ── */
-  var TABS = [['home', '🏛', '홈'], ['theory', '📖', '이론'], ['blank', '✏️', '빈칸'], ['quiz', '❓', '문제'], ['mock', '📝', '모의고사'], ['note', '📕', '오답노트']];
+  var TABS = [['home', '🏛', '홈'], ['theory', '📖', '이론'], ['blank', '✏️', '빈칸'], ['quiz', '❓', '문제'], ['mock', '📝', '시험'], ['note', '📕', '오답노트']];
   function nav() {
-    var cur = (location.hash.slice(1).split('/')[0]) || 'home';
+    var cur = (location.hash.slice(1).split('/')[0]) || 'home'; if (cur === 'real') cur = 'mock';
     var n = Object.keys(store.wrong).length + Object.keys(store.wrongB).length;
     var h = TABS.map(function (t) {
       return '<a href="#' + t[0] + '" class="' + (cur === t[0] ? 'on' : '') + '"><i>' + t[1] + '</i>' + t[2] +
@@ -60,7 +60,7 @@
   function route() {
     var p = location.hash.slice(1).split('/'), r = p[0] || 'home';
     nav(); window.scrollTo(0, 0); view.onclick = null;
-    ({ home: home, theory: theory, blank: blankView, quiz: quizView, mock: mockView, note: noteView }[r] || home)(p[1], p[2]);
+    ({ home: home, theory: theory, blank: blankView, quiz: quizView, mock: mockView, real: realView, note: noteView }[r] || home)(p[1], p[2]);
     view.focus({ preventScroll: true });
   }
   window.addEventListener('hashchange', route);
@@ -81,14 +81,33 @@
       '<div class="stats"><div class="stat"><b>' + solved.length + '</b><span>푼 문제</span></div>' +
       '<div class="stat"><b>' + (solved.length ? Math.round(ok / solved.length * 100) : 0) + '%</b><span>정답률</span></div>' +
       '<div class="stat"><b>' + (Object.keys(store.wrong).length + Object.keys(store.wrongB).length) + '</b><span>오답노트</span></div>' +
-      '<div class="stat"><b>' + best + '</b><span>모의고사 최고</span></div></div>' +
+      '<div class="stat"><b>' + (store.real.length ? store.real[store.real.length - 1].score : '-') + '</b><span>최근 실전시험</span></div></div>' +
       '<div class="card"><div class="qhead"><span class="no">오늘의 한 줄</span><span>' + unitName(b.u) + '</span><span class="sp"></span>' + wrBtn(b.id) + '</div>' +
       '<div class="bl">' + blankHTML(b.s) + '</div><div class="prog">밑줄을 눌러 정답 확인</div></div>' +
       '<div class="grid2"><a class="go" href="#theory/1"><b>📖 이론 정리</b><span>단원별 핵심 표, 핵심어 가리기</span></a>' +
       '<a class="go" href="#blank"><b>✏️ 빈칸 암기</b><span>학습지 빈칸 그대로</span></a>' +
       '<a class="go" href="#quiz"><b>❓ 단원별 문제</b><span>바로 채점 + 해설</span></a>' +
-      '<a class="go red" href="#mock"><b>📝 모의고사 5회</b><span>회당 20문항 · 100점</span></a></div>';
-    bindBlanks(view);
+      '<a class="go red" href="#real/start"><b>🎯 실전시험</b><span>매번 랜덤 20문항 · 회차별 점수</span></a>' +
+      '<a class="go" href="#mock"><b>📝 모의고사 5회</b><span>고정 5회분 반복 연습</span></a></div>' +
+      installCard();
+    bindBlanks(view); bindInstall();
+  }
+
+  /* ── 앱 설치(PWA) ── */
+  var deferred = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferred = e; if (/^#?(home)?$/.test(location.hash)) home(); });
+  function standalone() { return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone; }
+  function installCard() {
+    if (standalone()) return '';
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    return '<div class="card install"><b>📲 휴대폰에 앱으로 설치하기</b><p>' +
+      (deferred ? '아래 버튼을 누르면 홈 화면에 앱 아이콘이 생기고, 인터넷 없이도 열립니다.' :
+        ios ? '사파리 아래쪽 <b>공유 버튼(□↑)</b> → <b>홈 화면에 추가</b>를 누르세요.' :
+        '크롬 메뉴(⋮) → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 누르세요. (https 주소에서 열어야 설치됩니다)') + '</p>' +
+      (deferred ? '<button class="btn pri" id="inst">앱 설치</button>' : '') + '</div>';
+  }
+  function bindInstall() {
+    var b = $('#inst'); if (b) b.onclick = function () { deferred.prompt(); deferred.userChoice.then(function (c) { if (c.outcome === 'accepted') toast('설치했어요! 홈 화면을 확인하세요'); deferred = null; home(); }); };
   }
 
   /* ── 이론 ── */
@@ -197,29 +216,31 @@
     draw();
   }
 
-  /* ── 모의고사 ── */
+  /* ── 시험(모의고사·실전시험 공통 엔진) ── */
   function mockQs(n) { var a = []; for (var u = 1; u <= 5; u++) LAS.qs.forEach(function (q) { if (q.u === u && q.m === n) a.push(q); }); return a; }
-  function mockView(n) {
-    n = +n || 0;
-    if (!n) {
-      view.innerHTML = '<h2 class="pt">모의고사</h2><p class="lead">회당 20문항(단원별 4문항) · 문항당 5점 · 제출하면 채점과 해설, 틀린 문제는 오답노트에 자동 저장</p>' +
-        '<div class="mocks">' + [1, 2, 3, 4, 5].map(function (i) {
-          var r = store.mock[i];
-          return '<a class="mk" href="#mock/' + i + '"><b>' + i + '회</b><span>' + (r ? '최고 ' + r.best + '점 · 최근 ' + r.last + '점' : '아직 응시 전') + '</span></a>';
-        }).join('') + '</div>';
-      return;
-    }
-    var list = mockQs(n), ans = {}, t0 = Date.now(), done = false;
+  /* 실전시험: 매번 단원별 4문항씩 무작위 → 20문항, 단원 순서대로 배치 */
+  function realQs() { var a = []; for (var u = 1; u <= 5; u++) a = a.concat(shuffle(LAS.qs.filter(function (q) { return q.u === u; })).slice(0, 4)); return a; }
+  function fmtSec(s) { return Math.floor(s / 60) + '분 ' + ('0' + s % 60).slice(-2) + '초'; }
+  function fmtDate(t) { var d = new Date(t); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  function level(sc) {
+    return sc >= 90 ? ['최상', '1등급권 실력'] : sc >= 80 ? ['상', '2등급권 실력'] : sc >= 70 ? ['중상', '조금만 더!'] : sc >= 60 ? ['중', '약점 단원 복습 필요'] : ['기초', '이론·빈칸부터 다시'];
+  }
+  /* opt: {title, list, back, review(ans), onDone(result) } */
+  function runExam(opt) {
+    var list = opt.list, ans = opt.review ? opt.review.ans : {}, t0 = Date.now(), done = !!opt.review;
     function omr() {
       return '<div class="omr">' + list.map(function (q, i) {
         var c = ''; if (done) c = ans[q.id] === correctPos(q) ? 'ok' : 'no'; else if (ans[q.id] != null) c = 'd';
         return '<a href="#" data-go="' + q.id + '" class="' + c + '">' + (i + 1) + '</a>';
       }).join('') + '</div>';
     }
-    view.innerHTML = '<div class="examhead"><b style="font-family:var(--serif);font-size:20px;color:var(--ink)">모의고사 ' + n + '회</b><span class="prog" id="tm">00:00</span><span class="sp" style="flex:1"></span><button class="btn pri sm" id="sub">제출·채점</button></div>' +
+    view.innerHTML = '<div class="examhead"><b class="et">' + opt.title + '</b><span class="prog" id="tm">' + (done ? '' : '00:00') + '</span><span style="flex:1"></span>' +
+      (done ? '<a class="btn sm" href="' + opt.back + '">목록</a>' : '<button class="btn pri sm" id="sub">제출·채점</button>') + '</div>' +
       '<div id="omrw">' + omr() + '</div><div id="res"></div>' + list.map(function (q, i) { return qCard(q, (i + 1) + '.', { noWr: true }); }).join('') +
-      '<div class="row"><button class="btn pri" id="sub2">제출·채점</button><a class="btn" href="#mock">목록</a></div>';
-    var tick = setInterval(function () { var el = $('#tm'); if (!el || done) return clearInterval(tick); var s = Math.floor((Date.now() - t0) / 1000); el.textContent = ('0' + Math.floor(s / 60)).slice(-2) + ':' + ('0' + s % 60).slice(-2); }, 1000);
+      '<div class="row">' + (done ? '' : '<button class="btn pri" id="sub2">제출·채점</button>') + '<a class="btn" href="' + opt.back + '">목록으로</a></div>';
+    if (!done) {
+      var tick = setInterval(function () { var el = $('#tm'); if (!el || done) return clearInterval(tick); var s = Math.floor((Date.now() - t0) / 1000); el.textContent = ('0' + Math.floor(s / 60)).slice(-2) + ':' + ('0' + s % 60).slice(-2); }, 1000);
+    }
     view.onclick = function (e) {
       var g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); var c = $('#c-' + g.dataset.go); if (c) window.scrollTo({ top: c.getBoundingClientRect().top + scrollY - 130, behavior: 'smooth' }); return; }
       var b = e.target.closest('.ch'); if (!b || done) return;
@@ -227,32 +248,122 @@
       $('#c-' + id).querySelectorAll('.ch').forEach(function (x) { x.classList.toggle('sel', x === b); });
       $('#omrw').innerHTML = omr();
     };
-    function submit() {
-      var miss = list.length - Object.keys(ans).length;
-      if (miss && !confirm('안 푼 문제가 ' + miss + '개 있어요. 그래도 제출할까요?')) return;
-      done = true;
+    function grade(record) {
       var right = 0, byU = {}, added = 0;
       list.forEach(function (q) {
         var card = $('#c-' + q.id), ok = showExp(card, q, ans[q.id] == null ? null : ans[q.id]);
         byU[q.u] = byU[q.u] || [0, 0]; byU[q.u][1]++;
-        if (ok) { right++; byU[q.u][0]++; } else if (!store.wrong[q.id]) { store.wrong[q.id] = Date.now(); added++; }
-        store.solved[q.id] = ok;
+        if (ok) { right++; byU[q.u][0]++; } else if (record && !store.wrong[q.id]) { store.wrong[q.id] = Date.now(); added++; }
+        if (record) store.solved[q.id] = ok;
         card.querySelector('.qhead').insertAdjacentHTML('beforeend', wrBtn(q.id));
       });
-      var sc = right * 5, r = store.mock[n] || { best: 0 };
-      store.mock[n] = { best: Math.max(r.best || 0, sc), last: sc, at: Date.now() }; save(); nav();
-      var s = Math.floor((Date.now() - t0) / 1000);
-      $('#res').innerHTML = '<div class="card"><div class="score">' + sc + '<small> / 100점</small></div>' +
-        '<p class="prog">' + right + '문항 정답 · 소요 ' + Math.floor(s / 60) + '분 ' + s % 60 + '초' + (added ? ' · 틀린 ' + added + '문항을 오답노트에 담았어요' : '') + '</p>' +
-        Object.keys(byU).map(function (u) { var v = byU[u]; return '<div class="ubar"><span>' + u + '. ' + unitName(+u) + '</span><span class="b"><i style="width:' + v[0] / v[1] * 100 + '%"></i></span><span>' + v[0] + '/' + v[1] + '</span></div>'; }).join('') +
-        '<div class="row"><a class="btn pri" href="#note">오답노트 보기</a><button class="btn" id="again">다시 풀기</button></div></div>';
+      return { right: right, byU: byU, added: added, score: Math.round(right / list.length * 100) };
+    }
+    function resultCard(r, sec, extra) {
+      var lv = level(r.score);
+      return '<div class="card"><div class="scorerow"><div class="score">' + r.score + '<small> / 100점</small></div><div class="lv lv' + lv[0] + '"><b>' + lv[0] + '</b><span>' + lv[1] + '</span></div></div>' +
+        '<p class="prog">' + r.right + ' / ' + list.length + '문항 정답' + (sec != null ? ' · 소요 ' + fmtSec(sec) : '') + (r.added ? ' · 틀린 ' + r.added + '문항을 오답노트에 담았어요' : '') + '</p>' +
+        Object.keys(r.byU).map(function (u) { var v = r.byU[u]; return '<div class="ubar"><span>' + u + '. ' + unitName(+u) + '</span><span class="b"><i style="width:' + v[0] / v[1] * 100 + '%"></i></span><span>' + v[0] + '/' + v[1] + '</span></div>'; }).join('') +
+        (extra || '') + '</div>';
+    }
+    if (done) { var rr = grade(false); $('#res').innerHTML = resultCard(rr, opt.review.sec, ''); return; }
+    function submit() {
+      var miss = list.length - Object.keys(ans).length;
+      if (miss && !confirm('안 푼 문제가 ' + miss + '개 있어요. 그래도 제출할까요?')) return;
+      done = true;
+      var r = grade(true), sec = Math.floor((Date.now() - t0) / 1000);
+      var extra = opt.onDone(r, sec, ans) || '';
+      save(); nav();
+      $('#res').innerHTML = resultCard(r, sec, extra);
       $('#omrw').innerHTML = omr();
       $('#sub').disabled = $('#sub2').disabled = true;
-      $('#again').onclick = function () { mockView(n); window.scrollTo(0, 0); };
+      var ag = $('#again'); if (ag) ag.onclick = function () { opt.again(); window.scrollTo(0, 0); };
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      toast(sc + '점! 수고했어요');
+      toast(r.score + '점! 수고했어요');
     }
     $('#sub').onclick = submit; $('#sub2').onclick = submit;
+  }
+
+  /* 시험 탭 첫 화면: 실전시험 + 모의고사 */
+  function mockView(n) {
+    n = +n || 0;
+    if (n) {
+      runExam({ title: '모의고사 ' + n + '회', list: mockQs(n), back: '#mock',
+        again: function () { mockView(n); },
+        onDone: function (r) {
+          var p = store.mock[n] || { best: 0 };
+          store.mock[n] = { best: Math.max(p.best || 0, r.score), last: r.score, at: Date.now(), cnt: (p.cnt || 0) + 1 };
+          return '<div class="row"><a class="btn pri" href="#note">오답노트 보기</a><button class="btn" id="again">다시 풀기</button></div>';
+        } });
+      return;
+    }
+    var R = store.real, last = R[R.length - 1], best = R.reduce(function (m, x) { return Math.max(m, x.score); }, 0);
+    view.innerHTML = '<h2 class="pt">시험</h2><p class="lead">실전시험은 매번 새로 뽑은 20문항으로 지금 실력을 재고, 모의고사는 고정된 5회분으로 반복 연습합니다.</p>' +
+      '<div class="realcard"><div><span class="tag">실전시험</span><h3>매번 랜덤 20문항</h3><p>' + LAS.qs.length + '문항 중 단원별 4문항씩 무작위 · 문항당 5점</p>' +
+      '<p class="mini">' + (R.length ? '응시 ' + R.length + '회 · 최근 ' + last.score + '점 · 최고 ' + best + '점' : '아직 응시 기록이 없어요') + '</p></div>' +
+      '<div class="rbtns"><a class="btn pri" href="#real/start">시험 시작</a><a class="btn inv" href="#real">회차별 점수</a></div></div>' +
+      '<h3 class="sub">모의고사 5회</h3><div class="mocks">' + [1, 2, 3, 4, 5].map(function (i) {
+        var r = store.mock[i];
+        return '<a class="mk" href="#mock/' + i + '"><b>' + i + '회</b><span>' + (r ? '최고 ' + r.best + '점 · 최근 ' + r.last + '점' : '아직 응시 전') + '</span></a>';
+      }).join('') + '</div>';
+  }
+
+  /* ── 실전시험 ── #real(기록) / #real/start / #real/review/회차 */
+  function realView(a, b) {
+    if (a === 'start') {
+      var no = (store.real.length ? store.real[store.real.length - 1].no : 0) + 1;
+      runExam({ title: '실전시험 ' + no + '회차', list: realQs(), back: '#real',
+        again: function () { location.hash = 'real/start'; realView('start'); },
+        onDone: function (r, sec, ans) {
+          var prev = store.real[store.real.length - 1];
+          store.real.push({ no: no, at: Date.now(), score: r.score, right: r.right, n: 20, sec: sec, byU: r.byU,
+            ids: Array.prototype.map.call(view.querySelectorAll('.card[id^="c-"]'), function (c) { return c.id.slice(2); }), ans: ans });
+          var diff = prev ? r.score - prev.score : null;
+          return '<p class="prog">' + no + '회차 기록 저장' + (diff != null ? ' · 지난 회차보다 <b class="' + (diff >= 0 ? 'up' : 'down') + '">' + (diff >= 0 ? '+' : '') + diff + '점</b>' : '') + '</p>' +
+            '<div class="row"><a class="btn pri" href="#real">회차별 점수 보기</a><button class="btn" id="again">새 실전시험</button><a class="btn" href="#note">오답노트</a></div>';
+        } });
+      return;
+    }
+    if (a === 'review') {
+      var rec = store.real.filter(function (x) { return x.no === +b; })[0];
+      if (!rec) { location.hash = 'real'; return; }
+      runExam({ title: '실전시험 ' + rec.no + '회차 다시 보기', list: rec.ids.map(function (id) { return QBY[id]; }).filter(Boolean), back: '#real', review: { ans: rec.ans || {}, sec: rec.sec } });
+      return;
+    }
+    var R = store.real;
+    if (!R.length) {
+      view.innerHTML = '<h2 class="pt">실전시험 기록</h2><div class="empty"><b>아직 기록이 없어요</b>첫 실전시험으로 지금 실력을 재 보세요.<div class="row" style="justify-content:center"><a class="btn pri" href="#real/start">실전시험 시작</a></div></div>';
+      return;
+    }
+    var sum = 0, best = 0, tot = {}; R.forEach(function (x) { sum += x.score; best = Math.max(best, x.score); for (var u in x.byU) { tot[u] = tot[u] || [0, 0]; tot[u][0] += x.byU[u][0]; tot[u][1] += x.byU[u][1]; } });
+    var recent = R.slice(-5), ravg = Math.round(recent.reduce(function (s, x) { return s + x.score; }, 0) / recent.length);
+    var lv = level(ravg), weak = Object.keys(tot).sort(function (x, y) { return tot[x][0] / tot[x][1] - tot[y][0] / tot[y][1]; })[0];
+    view.innerHTML = '<h2 class="pt">실전시험 회차별 점수</h2><p class="lead">수준은 최근 5회 평균으로 판단합니다(학교 등급과 다를 수 있는 참고용).</p>' +
+      '<div class="stats"><div class="stat"><b>' + R.length + '</b><span>응시 횟수</span></div><div class="stat"><b>' + Math.round(sum / R.length) + '</b><span>전체 평균</span></div>' +
+      '<div class="stat"><b>' + best + '</b><span>최고 점수</span></div><div class="stat"><b>' + ravg + '</b><span>최근 5회 평균</span></div></div>' +
+      '<div class="card"><div class="scorerow"><div><div class="prog">현재 수준</div><div class="lv lv' + lv[0] + '"><b>' + lv[0] + '</b><span>' + lv[1] + '</span></div></div>' +
+      '<div class="weak">약점 단원<br><b>' + weak + '. ' + unitName(+weak) + '</b> ' + Math.round(tot[weak][0] / tot[weak][1] * 100) + '%<br><a class="btn sm" href="#quiz/' + weak + '">이 단원 문제 풀기</a></div></div>' +
+      chart(R.slice(-15)) +
+      Object.keys(tot).map(function (u) { var v = tot[u]; return '<div class="ubar"><span>' + u + '. ' + unitName(+u) + '</span><span class="b"><i style="width:' + v[0] / v[1] * 100 + '%"></i></span><span>' + Math.round(v[0] / v[1] * 100) + '%</span></div>'; }).join('') + '</div>' +
+      '<div class="row" style="margin:0 0 10px"><a class="btn pri" href="#real/start">새 실전시험</a><button class="btn red sm" id="delall">기록 전체 삭제</button></div>' +
+      '<div class="card tblw"><table class="rt"><tr><th>회차</th><th>날짜</th><th>점수</th><th>시간</th><th></th></tr>' +
+      R.slice().reverse().map(function (x) {
+        return '<tr><td><b>' + x.no + '회</b></td><td>' + fmtDate(x.at) + '</td><td><b class="sc">' + x.score + '</b></td><td>' + fmtSec(x.sec) + '</td>' +
+          '<td class="act"><a class="btn sm" href="#real/review/' + x.no + '">보기</a><button class="btn sm red" data-del="' + x.no + '" title="삭제" aria-label="' + x.no + '회차 삭제">✕</button></td></tr>';
+      }).join('') + '</table></div>';
+    view.querySelectorAll('[data-del]').forEach(function (d) {
+      d.onclick = function () { if (!confirm(d.dataset.del + '회차 기록을 삭제할까요?')) return; store.real = store.real.filter(function (x) { return x.no !== +d.dataset.del; }); save(); realView(); };
+    });
+    $('#delall').onclick = function () { if (!confirm('실전시험 기록을 모두 삭제할까요?')) return; store.real = []; save(); realView(); };
+  }
+  function chart(R) {
+    if (R.length < 2) return '<p class="prog">2회 이상 응시하면 점수 추이 그래프가 보여요.</p>';
+    var W = 320, H = 130, px = function (i) { return 24 + i * (W - 40) / (R.length - 1); }, py = function (s) { return 10 + (100 - s) * (H - 30) / 100; };
+    var pts = R.map(function (x, i) { return px(i) + ',' + py(x.score); }).join(' ');
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="점수 추이">' +
+      [0, 50, 100].map(function (s) { return '<line x1="20" x2="' + (W - 10) + '" y1="' + py(s) + '" y2="' + py(s) + '" class="gl"/><text x="2" y="' + (py(s) + 4) + '">' + s + '</text>'; }).join('') +
+      '<polyline points="' + pts + '" class="ln"/>' +
+      R.map(function (x, i) { return '<circle cx="' + px(i) + '" cy="' + py(x.score) + '" r="4"/><text x="' + px(i) + '" y="' + (H - 4) + '" text-anchor="middle">' + x.no + '</text>'; }).join('') + '</svg>';
   }
 
   /* ── 오답노트 ── */
